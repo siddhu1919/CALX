@@ -4,10 +4,7 @@ import { MantineProvider } from "@mantine/core";
 import Home from "@/screens/home";
 import "@/index.css";
 import LoginPage from "./screens/Login";
-
-
-
-
+import SignUpPage from "./screens/Signup";
 
 const paths = [
   {
@@ -17,6 +14,10 @@ const paths = [
   {
     path: "/login",
     element: <LoginPage />,
+  },
+  {
+    path: "/signup",
+    element: <SignUpPage />,
   },
 ];
 

@@ -14,12 +14,13 @@ import Logo from "@/assets/leaf.png";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { Link } from "react-router-dom";
 
-type LoginInputTypes = {
+type SignUpInputTypes = {
   email: string;
   password: string;
+  confirmPassword: string;
 };
 
-export function LoginForm({
+export function SignUpForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
@@ -28,15 +29,19 @@ export function LoginForm({
     handleSubmit,
     watch,
     formState: { errors },
-  } = useForm<LoginInputTypes>();
+  } = useForm<SignUpInputTypes>();
 
   // Submit handler Function
-  const submit: SubmitHandler<LoginInputTypes> = (data) => {
+  const submit: SubmitHandler<SignUpInputTypes> = (data) => {
     console.log("im called");
     console.log("data", data);
     console.log("errors", errors);
     console.log(watch("email")); // watch input value by passing the name of it
     console.log(watch("password")); // watch input value by passing the name of it
+  };
+
+  const validateConfirmPassword = (value: string) => {
+    return value === watch("password") || "Passwords do not match";
   };
 
   return (
@@ -47,9 +52,9 @@ export function LoginForm({
       </div>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Login</CardTitle>
+          <CardTitle className="text-2xl">Register </CardTitle>
           <CardDescription>
-            Enter your email below to login to your account
+            Enter your credentials below to create a new account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -79,12 +84,6 @@ export function LoginForm({
               <div className="grid gap-2">
                 <div className="flex items-center">
                   <Label htmlFor="password">Password</Label>
-                  <a
-                    href="#"
-                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
-                  >
-                    Forgot your password?
-                  </a>
                 </div>
                 <Input
                   id="password"
@@ -100,14 +99,33 @@ export function LoginForm({
                   </div>
                 )}
               </div>
+              <div className="grid gap-2">
+                <div className="flex items-center">
+                  <Label htmlFor="password">Confirm Password</Label>
+                </div>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  required
+                  {...register("confirmPassword", {
+                    required: "Password is required",
+                    validate: validateConfirmPassword,
+                  })}
+                />
+                {errors.confirmPassword && (
+                  <div className="text-red-500 text-sm">
+                    {errors.confirmPassword.message}
+                  </div>
+                )}
+              </div>
               <Button type="submit" className="w-full active:scale-95">
-                Login
+                Register
               </Button>
             </div>
             <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{" "}
-              <Link to="/signup" className="underline underline-offset-4">
-                Register
+              Already have an account?{" "}
+              <Link to="/login" className="underline underline-offset-4">
+                Login
               </Link>
             </div>
           </form>
