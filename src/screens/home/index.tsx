@@ -1,9 +1,12 @@
-import { ColorSwatch, Group } from "@mantine/core";
+import { ColorSwatch, Group, Slider } from "@mantine/core";
 import { Button } from "@/components/ui/button";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import axios from "axios";
 import Draggable from "react-draggable";
 import { SWATCHES } from "@/constants";
+import { Sidebar } from "@/components/Sidebar";
+import { toast } from "react-hot-toast";
+import { Eraser } from "lucide-react";
 // import {LazyBrush} from 'lazy-brush';
 
 interface GeneratedResult {
@@ -26,12 +29,19 @@ export default function Home() {
   const [result, setResult] = useState<GeneratedResult>();
   const [latexPosition, setLatexPosition] = useState({ x: 10, y: 200 });
   const [latexExpression, setLatexExpression] = useState<Array<string>>([]);
+  const [isEraser, setIsEraser] = useState(false);
+  const [eraserSize, setEraserSize] = useState(20);
+  const [pages, setPages] = useState<Array<{ id: string; name: string; thumbnail: string; content: string }>>([]);
+  const [currentPage, setCurrentPage] = useState<{ id: string; name: string; thumbnail: string; content: string } | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout>();
 
   // const lazyBrush = new LazyBrush({
   //     radius: 10,
   //     enabled: true,
   //     initialPoint: { x: 0, y: 0 },
   // });
+
 
   useEffect(() => {
     if (latexExpression.length > 0 && window.MathJax) {
@@ -57,16 +67,96 @@ export default function Home() {
     }
   }, [reset]);
 
+  const saveCurrentPage = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !currentPage) return;
+
+    const thumbnail = canvas.toDataURL();
+    const content = canvas.toDataURL();
+    const updatedPage = { ...currentPage, thumbnail, content };
+    setPages(pages.map(p => p.id === currentPage.id ? updatedPage : p));
+    localStorage.setItem('pages', JSON.stringify(pages.map(p => p.id === currentPage.id ? updatedPage : p)));
+    setHasUnsavedChanges(false);
+    toast.success('Changes saved');
+  }, [currentPage, pages]);
+
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        saveCurrentPage();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [saveCurrentPage]);
+  
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsEraser(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [isEraser]);
+
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(saveCurrentPage, 3000);
+    }
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [hasUnsavedChanges, saveCurrentPage]);
+
+  useEffect(() => {
+    const savedPages = localStorage.getItem('pages');
+    const lastActivePageId = localStorage.getItem('lastActivePageId');
+    if (savedPages) {
+      const parsedPages = JSON.parse(savedPages);
+      setPages(parsedPages);
+      if (parsedPages.length > 0) {
+        const lastActivePage = lastActivePageId ? parsedPages.find(p => p.id === lastActivePageId) : null;
+        setCurrentPage(lastActivePage || parsedPages[0]);
+      }
+    } else {
+      const defaultPage = {
+        id: '1',
+        name: 'Untitled Page',
+        thumbnail: '',
+        content: ''
+      };
+      setPages([defaultPage]);
+      setCurrentPage(defaultPage);
+      localStorage.setItem('pages', JSON.stringify([defaultPage]));
+    }
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
-
     if (canvas) {
       const ctx = canvas.getContext("2d");
       if (ctx) {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight - canvas.offsetTop;
         ctx.lineCap = "round";
-        ctx.lineWidth = 3;
+        ctx.lineWidth = isEraser ? eraserSize : 3;
+        if (currentPage?.content) {
+          const img = new Image();
+          img.src = currentPage.content;
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0);
+          };
+        }
       }
     }
     const script = document.createElement("script");
@@ -89,7 +179,7 @@ export default function Home() {
     return () => {
       document.head.removeChild(script);
     };
-  }, []);
+  }, [currentPage]);
 
   const renderLatexToCanvas = (expression: string, answer: string) => {
     const latex = `\\(\\LARGE{${expression} = ${answer}}\\)`;
@@ -128,16 +218,62 @@ export default function Home() {
     }
   };
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) {
-      return;
-    }
+    if (!isDrawing) return;
+    
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext("2d");
       if (ctx) {
-        ctx.strokeStyle = color;
+        if (isEraser) {
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.strokeStyle = 'rgba(0,0,0,1)';
+        } else {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = color;
+        }
+        ctx.lineWidth = isEraser ? eraserSize : 3;
         ctx.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
         ctx.stroke();
+        setHasUnsavedChanges(true);
+      }
+    }
+  };
+
+  const handlePageCreate = (name: string) => {
+    if (hasUnsavedChanges) {
+      saveCurrentPage();
+    }
+    const pageNumber = pages.length + 1;
+    const defaultName = name.trim() || `Page ${pageNumber}`;
+    const newPage = {
+      id: Date.now().toString(),
+      name: defaultName,
+      thumbnail: '',
+      content: ''
+    };
+    setPages([...pages, newPage]);
+    setCurrentPage(newPage);
+    localStorage.setItem('pages', JSON.stringify([...pages, newPage]));
+    resetCanvas();
+  };
+
+  const handlePageSelect = (page: typeof currentPage) => {
+    if (hasUnsavedChanges) {
+      saveCurrentPage();
+    }
+    setCurrentPage(page);
+    localStorage.setItem('lastActivePageId', page?.id || '');
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx && page?.content) {
+        const img = new Image();
+        img.src = page.content;
+        console.log("hi");
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+        };
       }
     }
   };
@@ -206,7 +342,13 @@ export default function Home() {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-2">
+      <Sidebar
+        currentPage={currentPage}
+        pages={pages}
+        onPageSelect={handlePageSelect}
+        onPageCreate={handlePageCreate}
+      />
+      <div className=" flex justify-around py-5 gap-2 ml-16">
         <Button
           onClick={() => setReset(true)}
           className="z-20 bg-black text-white"
@@ -220,10 +362,32 @@ export default function Home() {
             <ColorSwatch
               key={swatch}
               color={swatch}
-              onClick={() => setColor(swatch)}
+              onClick={() => {
+                setColor(swatch);
+                setIsEraser(false);
+              }}
             />
           ))}
         </Group>
+        <div className="z-20 flex items-center gap-2">
+          <Button
+            onClick={() => setIsEraser(!isEraser)}
+            className={`bg-black text-white ${isEraser ? 'bg-gray-700' : ''}`}
+            variant="default"
+          >
+            <Eraser size={20} />
+          </Button>
+          {isEraser && (
+            <Slider
+              value={eraserSize}
+              onChange={setEraserSize}
+              min={5}
+              max={50}
+              label={(value) => `${value}px`}
+              className="w-32"
+            />
+          )}
+        </div>
         <Button
           onClick={runRoute}
           className="z-20 bg-black text-white"
